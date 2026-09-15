@@ -6706,24 +6706,17 @@ class Router:
 
     def _record_rate_limit_429(self, model_group: Optional[str]) -> None:
         provider = self._get_retry_after_provider(model_group)
-        group_key = model_group or "default"
         with self._retry_after_lock:
             self._dynamic_retry_after[provider] = min(
-                30.0, self._get_retry_after_for(provider) + 5
+                30.0, self._get_retry_after_for(provider) + 1
             )
-            self._consecutive_success_count[group_key] = 0
 
     def _record_success(self, model_group: Optional[str]) -> None:
         provider = self._get_retry_after_provider(model_group)
-        group_key = model_group or "default"
         with self._retry_after_lock:
-            count = self._consecutive_success_count.get(group_key, 0) + 1
-            if count >= 5:
-                self._dynamic_retry_after[provider] = max(
-                    0.0, self._get_retry_after_for(provider) - 1
-                )
-                count = 0
-            self._consecutive_success_count[group_key] = count
+            self._dynamic_retry_after[provider] = max(
+                0.0, self._get_retry_after_for(provider) - 1
+            )
 
     def _time_to_sleep_before_retry(
         self,
