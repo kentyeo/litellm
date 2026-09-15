@@ -6458,7 +6458,12 @@ class Router:
                 self._get_retry_after_provider(model_group)
             )
             _ak = kwargs.get("litellm_params", {}).get("api_key", "")
-            _ak_mask = (_ak[:4] + "..." + _ak[-4:]) if isinstance(_ak, str) and len(_ak) >= 8 else "***"
+            if isinstance(_ak, str) and len(_ak) >= 8:
+                _ak_mask = _ak[:4] + "..." + _ak[-4:]
+            elif isinstance(_ak, str):
+                _ak_mask = f"str(len={len(_ak)}):{_ak}"
+            else:
+                _ak_mask = f"type={type(_ak).__name__}:repr={repr(_ak)[:40]}"
             print(
                 f"[Retry] model={model_group} status={getattr(original_exception, 'status_code', type(original_exception).__name__)} key={_ak_mask} sleep={retry_after}s",
                 flush=True,
@@ -6523,7 +6528,12 @@ class Router:
                         self._get_retry_after_provider(model_group)
                     )
                     _ak = kwargs.get("litellm_params", {}).get("api_key", "")
-                    _ak_mask = (_ak[:4] + "..." + _ak[-4:]) if isinstance(_ak, str) and len(_ak) >= 8 else "***"
+                    if isinstance(_ak, str) and len(_ak) >= 8:
+                        _ak_mask = _ak[:4] + "..." + _ak[-4:]
+                    elif isinstance(_ak, str):
+                        _ak_mask = f"str(len={len(_ak)}):{_ak}"
+                    else:
+                        _ak_mask = f"type={type(_ak).__name__}:repr={repr(_ak)[:40]}"
                     print(
                         f"[Retry] model={model_group} status={getattr(e, 'status_code', type(e).__name__)} key={_ak_mask} sleep={_timeout}s",
                         flush=True,
