@@ -6457,15 +6457,24 @@ class Router:
             retry_after = self._get_retry_after_for(
                 self._get_retry_after_provider(model_group)
             )
+            def _mask_key(_k):
+                if isinstance(_k, str) and len(_k) >= 8:
+                    return _k[:4] + "..." + _k[-4:]
+                return f"type={type(_k).__name__}:repr={repr(_k)[:40]}"
+
             _ak = kwargs.get("api_key") or kwargs.get("litellm_params", {}).get("api_key", "")
-            if isinstance(_ak, str) and len(_ak) >= 8:
-                _ak_mask = _ak[:4] + "..." + _ak[-4:]
-            elif isinstance(_ak, str):
-                _ak_mask = f"str(len={len(_ak)}):{_ak}"
-            else:
-                _ak_mask = f"type={type(_ak).__name__}:repr={repr(_ak)[:40]}"
+            _kw_model = kwargs.get("model", "")
+            _dep_keys = []
+            if model_group:
+                _dep = self.get_deployment_by_model_group_name(model_group)
+                if _dep is not None:
+                    _lpm = _dep.litellm_params
+                    if isinstance(_lpm, dict):
+                        _dep_keys.append(_mask_key(_lpm.get("api_key", "")))
+                    else:
+                        _dep_keys.append(_mask_key(getattr(_lpm, "api_key", "")))
             print(
-                f"[Retry] model={model_group} status={getattr(original_exception, 'status_code', type(original_exception).__name__)} key={_ak_mask} sleep={retry_after}s",
+                f"[Retry] model={model_group} kw_model={_kw_model} status={getattr(original_exception, 'status_code', type(original_exception).__name__)} kw_key={_mask_key(_ak)} dep_key={_dep_keys} sleep={retry_after}s",
                 flush=True,
             )
             await asyncio.sleep(retry_after)
