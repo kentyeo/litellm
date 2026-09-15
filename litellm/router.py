@@ -6466,8 +6466,9 @@ class Router:
             )
             _ak = kwargs.get("api_key") or kwargs.get("litellm_params", {}).get("api_key", "")
             _ak_mask = (_ak[:4] + "..." + _ak[-4:]) if isinstance(_ak, str) and len(_ak) >= 8 else repr(_ak)[:40]
+            _emsg = getattr(original_exception, "message", "") or str(original_exception)
             print(
-                f"[Retry] model={model_group} status={getattr(original_exception, 'status_code', type(original_exception).__name__)} key={_ak_mask} sleep={retry_after}s",
+                f"[Retry] model={model_group} status={getattr(original_exception, 'status_code', type(original_exception).__name__)} msg={_emsg[:80]} key={_ak_mask} sleep={retry_after}s",
                 flush=True,
             )
             await asyncio.sleep(retry_after)
@@ -6531,8 +6532,9 @@ class Router:
                     )
                     _ak = kwargs.get("api_key") or kwargs.get("litellm_params", {}).get("api_key", "")
                     _ak_mask = (_ak[:4] + "..." + _ak[-4:]) if isinstance(_ak, str) and len(_ak) >= 8 else repr(_ak)[:40]
+                    _emsg = getattr(e, "message", "") or str(e)
                     print(
-                        f"[Retry] model={model_group} status={getattr(e, 'status_code', type(e).__name__)} key={_ak_mask} sleep={_timeout}s",
+                        f"[Retry] model={model_group} status={getattr(e, 'status_code', type(e).__name__)} msg={_emsg[:80]} key={_ak_mask} sleep={_timeout}s",
                         flush=True,
                     )
                     await asyncio.sleep(_timeout)
