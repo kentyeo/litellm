@@ -6457,7 +6457,7 @@ class Router:
             retry_after = self._get_retry_after_for(
                 self._get_retry_after_provider(model_group)
             )
-            _ak = kwargs.get("litellm_params", {}).get("api_key", "")
+            _ak = kwargs.get("api_key") or kwargs.get("litellm_params", {}).get("api_key", "")
             if isinstance(_ak, str) and len(_ak) >= 8:
                 _ak_mask = _ak[:4] + "..." + _ak[-4:]
             elif isinstance(_ak, str):
@@ -6527,7 +6527,7 @@ class Router:
                     _timeout = self._get_retry_after_for(
                         self._get_retry_after_provider(model_group)
                     )
-                    _ak = kwargs.get("litellm_params", {}).get("api_key", "")
+                    _ak = kwargs.get("api_key") or kwargs.get("litellm_params", {}).get("api_key", "")
                     if isinstance(_ak, str) and len(_ak) >= 8:
                         _ak_mask = _ak[:4] + "..." + _ak[-4:]
                     elif isinstance(_ak, str):
