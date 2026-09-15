@@ -6457,6 +6457,10 @@ class Router:
             retry_after = self._get_retry_after_for(
                 self._get_retry_after_provider(model_group)
             )
+            print(
+                f"[Retry] model={model_group} status={getattr(original_exception, 'status_code', type(original_exception).__name__)} sleep={retry_after}s",
+                flush=True,
+            )
             await asyncio.sleep(retry_after)
 
             for current_attempt in range(num_retries):
@@ -6515,6 +6519,10 @@ class Router:
 
                     _timeout = self._get_retry_after_for(
                         self._get_retry_after_provider(model_group)
+                    )
+                    print(
+                        f"[Retry] model={model_group} status={getattr(e, 'status_code', type(e).__name__)} sleep={_timeout}s",
+                        flush=True,
                     )
                     await asyncio.sleep(_timeout)
 
@@ -7023,6 +7031,12 @@ class Router:
             return
         elif isinstance(id, int):
             id = str(id)
+
+        exception = kwargs.get("exception", None)
+        exception_status = getattr(exception, "status_code", "")
+        if exception_status == 429:
+            self._record_rate_limit_429(model_group)
+
         parent_otel_span = _get_parent_otel_span_from_kwargs(kwargs)
 
         dt = get_utc_datetime()
