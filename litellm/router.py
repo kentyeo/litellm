@@ -552,6 +552,14 @@ class Router:
         self.stream_timeout = stream_timeout
 
         self.retry_after = retry_after
+        self._dynamic_retry_after: Dict[str, float] = {}
+        self._consecutive_success_count: Dict[str, int] = {}
+        self._retry_after_lock = threading.Lock()
+        verbose_router_logger.debug(
+            "Router initialized with retry_after=%s",
+            self.retry_after,
+        )
+        verbose_router_logger.debug(...)
         self.routing_strategy = self._normalize_strategy(routing_strategy)
         self._routing_groups_input: Optional[List[Union[RoutingGroup, dict]]] = routing_groups
 
@@ -6446,14 +6454,9 @@ class Router:
 
             verbose_router_logger.debug(f"Retrying request with num_retries: {num_retries}")
             # decides how long to sleep before retry
-            retry_after = self._time_to_sleep_before_retry(
-                e=original_exception,
-                remaining_retries=num_retries,
-                num_retries=num_retries,
-                healthy_deployments=_healthy_deployments,
-                all_deployments=_all_deployments,
+            retry_after = self._get_retry_after_for(
+                self._get_retry_after_provider(model_group)
             )
-
             await asyncio.sleep(retry_after)
 
             for current_attempt in range(num_retries):
@@ -6510,12 +6513,8 @@ class Router:
                         except Exception:
                             raise e
 
-                    _timeout = self._time_to_sleep_before_retry(
-                        e=e,
-                        remaining_retries=remaining_retries,
-                        num_retries=num_retries,
-                        healthy_deployments=_healthy_deployments,
-                        all_deployments=_all_deployments,
+                    _timeout = self._get_retry_after_for(
+                        self._get_retry_after_provider(model_group)
                     )
                     await asyncio.sleep(_timeout)
 
@@ -6680,6 +6679,40 @@ class Router:
                     return default_list[0]
         return None
 
+    def _get_retry_after_provider(self, model_group: Optional[str]) -> str:
+        if not model_group:
+            return "default"
+        mg = model_group.lower()
+        if mg.startswith("agnes"):
+            return "agnes"
+        if mg.startswith("sensenova"):
+            return "sensenova"
+        return "default"
+
+    def _get_retry_after_for(self, provider: str) -> float:
+        return self._dynamic_retry_after.get(provider, self.retry_after)
+
+    def _record_rate_limit_429(self, model_group: Optional[str]) -> None:
+        provider = self._get_retry_after_provider(model_group)
+        group_key = model_group or "default"
+        with self._retry_after_lock:
+            self._dynamic_retry_after[provider] = min(
+                30.0, self._get_retry_after_for(provider) + 5
+            )
+            self._consecutive_success_count[group_key] = 0
+
+    def _record_success(self, model_group: Optional[str]) -> None:
+        provider = self._get_retry_after_provider(model_group)
+        group_key = model_group or "default"
+        with self._retry_after_lock:
+            count = self._consecutive_success_count.get(group_key, 0) + 1
+            if count >= 5:
+                self._dynamic_retry_after[provider] = max(
+                    0.0, self._get_retry_after_for(provider) - 1
+                )
+                count = 0
+            self._consecutive_success_count[group_key] = count
+
     def _time_to_sleep_before_retry(
         self,
         e: Exception,
@@ -6695,7 +6728,6 @@ class Router:
             1. there are healthy deployments in the same model group
             2. there are fallbacks for the completion call
         """
-
         ## base case - single deployment
         if all_deployments is not None and len(all_deployments) == 1:
             pass
@@ -6722,6 +6754,8 @@ class Router:
                 max_retries=num_retries,
                 min_timeout=self.retry_after,
             )
+
+        timeout = max(timeout, self.retry_after)
 
         return timeout
 
@@ -6760,6 +6794,8 @@ class Router:
                     return
                 elif isinstance(id, int):
                     id = str(id)
+
+                self._record_success(model_group)
 
                 ## get deployment info
                 deployment_info = self.get_deployment(model_id=id)
@@ -6914,6 +6950,11 @@ class Router:
             # Cache litellm_params to avoid repeated dict lookups
             litellm_params = kwargs.get("litellm_params", {})
             _model_info = litellm_params.get("model_info", {})
+
+            if exception_status == 429:
+                _metadata = litellm_params.get("metadata")
+                _model_group = _metadata.get("model_group") if isinstance(_metadata, dict) else None
+                self._record_rate_limit_429(_model_group)
 
             exception_headers = litellm.litellm_core_utils.exception_mapping_utils._get_response_headers(
                 original_exception=exception

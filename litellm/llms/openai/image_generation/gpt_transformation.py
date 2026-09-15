@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, List, Optional
+﻿from typing import TYPE_CHECKING, Any, List, Optional
 
 import httpx
 
@@ -26,6 +26,7 @@ class GPTImageGenerationConfig(BaseImageGenerationConfig):
             "output_compression",
             "output_format",
             "quality",
+            "response_format",
             "size",
             "user",
         ]

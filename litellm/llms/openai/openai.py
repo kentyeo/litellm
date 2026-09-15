@@ -1407,6 +1407,8 @@ class OpenAIChatCompletion(BaseLLM, BaseOpenAILLM):
         data = {}
         try:
             data = {"model": model, "prompt": prompt, **optional_params}
+            if "response_format" not in data:
+                data["response_format"] = "b64_json"
             max_retries = data.pop("max_retries", 2)
             if not isinstance(max_retries, int):
                 raise OpenAIError(status_code=422, message="max retries must be an int")
