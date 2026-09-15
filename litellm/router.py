@@ -6959,11 +6959,6 @@ class Router:
             litellm_params = kwargs.get("litellm_params", {})
             _model_info = litellm_params.get("model_info", {})
 
-            if exception_status == 429:
-                _metadata = litellm_params.get("metadata")
-                _model_group = _metadata.get("model_group") if isinstance(_metadata, dict) else None
-                self._record_rate_limit_429(_model_group)
-
             exception_headers = litellm.litellm_core_utils.exception_mapping_utils._get_response_headers(
                 original_exception=exception
             )
