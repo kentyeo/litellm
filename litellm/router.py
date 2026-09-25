@@ -18,6 +18,7 @@ import re
 import threading
 import time
 import traceback
+import uuid
 from collections import defaultdict
 from functools import lru_cache
 from typing import (
@@ -6460,14 +6461,18 @@ class Router:
                 raise
 
             verbose_router_logger.debug(f"Retrying request with num_retries: {num_retries}")
-            # decides how long to sleep before retry
+            _wait_started = time.time()
+            _req_id = kwargs.get("litellm_request_id") or kwargs.get("litellm_params", {}).get("litellm_request_id", "") or kwargs.get("litellm_params", {}).get("metadata", {}).get("request_id", "")
+            _req_short = str(_req_id)[:8] or uuid.uuid4().hex[:8]
+            _waited_total = 0.0
             retry_after = self._get_retry_after_for(
-                self._get_retry_after_provider(model_group)
+                self._get_retry_after_bucket(model_group)
             )
             print(
-                f"[Retry] model={model_group} status={getattr(original_exception, 'status_code', type(original_exception).__name__)} sleep={retry_after}s",
+                f"[Wait] #{_req_short} model={model_group} status={getattr(original_exception, 'status_code', type(original_exception).__name__)} attempt=1/{num_retries} sleep={retry_after:.0f}s waited=0s eta<={retry_after * num_retries:.0f}s",
                 flush=True,
             )
+            _waited_total += retry_after
             await asyncio.sleep(retry_after)
 
             for current_attempt in range(num_retries):
@@ -6484,6 +6489,10 @@ class Router:
                         response=response,
                         attempted_retries=current_attempt + 1,
                         max_retries=num_retries,
+                    )
+                    print(
+                        f"[Done] #{_req_short} model={model_group} retries={current_attempt + 1} waited={time.time() - _wait_started:.0f}s total",
+                        flush=True,
                     )
                     return response
 
@@ -6524,14 +6533,16 @@ class Router:
                         except Exception:
                             raise e
 
-                    _timeout = self._get_retry_after_for(
-                        self._get_retry_after_provider(model_group)
-                    )
-                    print(
-                        f"[Retry] model={model_group} status={getattr(e, 'status_code', type(e).__name__)} sleep={_timeout}s",
-                        flush=True,
-                    )
-                    await asyncio.sleep(_timeout)
+                    if current_attempt < num_retries - 1:
+                        _timeout = self._get_retry_after_for(
+                            self._get_retry_after_bucket(model_group)
+                        )
+                        print(
+                            f"[Wait] #{_req_short} model={model_group} status={getattr(e, 'status_code', type(e).__name__)} attempt={current_attempt + 2}/{num_retries} sleep={_timeout:.0f}s waited={_waited_total:.0f}s eta<={(num_retries - current_attempt - 1) * _timeout:.0f}s",
+                            flush=True,
+                        )
+                        _waited_total += _timeout
+                        await asyncio.sleep(_timeout)
 
             if type(original_exception) in litellm.LITELLM_EXCEPTION_TYPES:
                 setattr(original_exception, "max_retries", num_retries)
@@ -6694,31 +6705,24 @@ class Router:
                     return default_list[0]
         return None
 
-    def _get_retry_after_provider(self, model_group: Optional[str]) -> str:
-        if not model_group:
-            return "default"
-        mg = model_group.lower()
-        if mg.startswith("agnes"):
-            return "agnes"
-        if mg.startswith("sensenova"):
-            return "sensenova"
-        return "default"
+    def _get_retry_after_bucket(self, model_group: Optional[str]) -> str:
+        return model_group or "default"
 
     def _get_retry_after_for(self, provider: str) -> float:
         return self._dynamic_retry_after.get(provider, self.retry_after)
 
     def _record_rate_limit_429(self, model_group: Optional[str]) -> None:
-        provider = self._get_retry_after_provider(model_group)
+        bucket = self._get_retry_after_bucket(model_group)
         with self._retry_after_lock:
-            self._dynamic_retry_after[provider] = min(
-                30.0, self._get_retry_after_for(provider) + 1
+            self._dynamic_retry_after[bucket] = min(
+                30.0, self._get_retry_after_for(bucket) + 1
             )
 
     def _record_success(self, model_group: Optional[str]) -> None:
-        provider = self._get_retry_after_provider(model_group)
+        bucket = self._get_retry_after_bucket(model_group)
         with self._retry_after_lock:
-            self._dynamic_retry_after[provider] = max(
-                0.0, self._get_retry_after_for(provider) - 1
+            self._dynamic_retry_after[bucket] = max(
+                self.retry_after, self._get_retry_after_for(bucket) - 1
             )
 
     def _time_to_sleep_before_retry(
